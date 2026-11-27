@@ -1,4 +1,3 @@
-
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -8,28 +7,49 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Permite que varios lectores accedan simultáneamente y garantiza
  * que los escritores tengan acceso exclusivo.
  *
- * Utiliza un bloqueo justo para evitar la inanición de escritores.
+ * Utiliza un bloqueo justo (cola FIFO) para evitar la inanición de
+ * escritores: si hay un escritor esperando, los lectores que llegan
+ * después deben esperar detrás de él.
+ *
+ * Thread-safety: todos los métodos pueden invocarse desde múltiples hilos.
+ * El estado interno se protege con un ReentrantReadWriteLock y un AtomicInteger.
  */
 public class GestorAcceso {
 
-    // Bloqueo de lectura y escritura en modo justo
-    private final ReentrantReadWriteLock lock =
-            new ReentrantReadWriteLock(true);
+    /** Bloqueo de lectura y escritura. */
+    private final ReentrantReadWriteLock lock;
 
-    // Contador de escritores que están esperando
-    private final AtomicInteger escritoresEsperando =
-            new AtomicInteger(0);
+    /** Contador de escritores que están esperando. */
+    private final AtomicInteger escritoresEsperando = new AtomicInteger(0);
+
+    /**
+     * Crea el gestor en modo justo (recomendado).
+     */
+    public GestorAcceso() {
+        this(true);
+    }
+
+    /**
+     * Crea el gestor indicando si el bloqueo es justo.
+     *
+     * @param justo true = cola FIFO (evita inanición); false = modo injusto,
+     *              solo para pruebas comparativas
+     */
+    public GestorAcceso(boolean justo) {
+        this.lock = new ReentrantReadWriteLock(justo);
+    }
 
     /**
      * Solicita acceso de lectura al recurso compartido.
-     * Varios lectores pueden acceder simultáneamente.
+     * Varios lectores pueden acceder simultáneamente. Bloquea si hay un
+     * escritor activo o (en modo justo) un escritor esperando por delante.
      */
     public void entrarLectura() {
         lock.readLock().lock();
     }
 
     /**
-     * Libera el acceso de lectura.
+     * Libera el acceso de lectura. Debe llamarse en un bloque finally.
      */
     public void salirLectura() {
         lock.readLock().unlock();
@@ -40,9 +60,7 @@ public class GestorAcceso {
      * Los lectores y otros escritores deberán esperar.
      */
     public void entrarEscritura() {
-
         escritoresEsperando.incrementAndGet();
-
         try {
             lock.writeLock().lock();
         } finally {
@@ -51,7 +69,7 @@ public class GestorAcceso {
     }
 
     /**
-     * Libera el acceso exclusivo de escritura.
+     * Libera el acceso exclusivo de escritura. Debe llamarse en un bloque finally.
      */
     public void salirEscritura() {
         lock.writeLock().unlock();
